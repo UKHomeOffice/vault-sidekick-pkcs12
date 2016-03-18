@@ -1,0 +1,16 @@
+publish:
+  docker:
+    privileged: true
+    registry: quay.io
+    username: $$QUAY_USER
+    password: $$QUAY_PASSWORD
+    email: $$QUAY_EMAIL
+    repo: quay.io/ukhomeofficedigital/vault-sidekick-pkcs
+    storage_driver: vfs
+    tag:
+      - latest
+      - v0.0.$$BUILD_NUMBER
+    when:
+      branch: master
+
+    branch: master
