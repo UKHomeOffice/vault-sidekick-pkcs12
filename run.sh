@@ -3,8 +3,37 @@
 set -e
 
 
+JAVA_OPTIONS="-Djava.rmi.server.hostname=127.0.0.1 ${JAVA_OPTIONS}"
+SPRING_CONFIG_OPTIONS_FILE=/config/application.properties
+# This file comes from a Volume that we mount in the Pod
+# /etc/sslca/cert
+CACERT="/etc/sslca/platform-ca.pem"
+
+
+
+
+# Routine to retive a file from valut
+# based on the domain and  service
+getProperties() {
+  TEMPFILE=`mktemp`
+  echo "Getting properties file for $SERVICE $DOMAIN"
+  curl -L -vvv --cacert $CACERT -X GET -H "X-Vault-Token:${VAULT_TOKEN}" \
+       -o ${TEMPFILE} \
+       -d "${DATA}" ${VAULT_ADDR}v1/secret/${DOMAIN}/${SERVICE}
+  cat ${TEMPFILE} | jq  .data.value  | sed  -e 's/"//g' -e 's/\\n/\x0a/g' > $SPRING_CONFIG_OPTIONS_FILE
+  rm -f ${TEMPFILE}
+}
+
+
+# Let us use the SERVICE to find the domain
+if [ "${DOMAIN}" = "" -a "${SERVICE}" != "" ]; then
+    DOMAIN=`host ${SERVICE} | cut -d" " -f 1 | cut -d. -f 2-`
+fi
+
+
 if [ "${VAULT_TOKEN}" != "" ]; then
-    echo "VAULT_TOKEN set using vault for certs against $VAULT_HOST for the DOMAIN ${SERVICE}.${DOMAIN}"
+    echo "VAULT_TOKEN set using vault for certs against $VAULT_ADDR for the DOMAIN ${SERVICE}.${DOMAIN}"
+
     DATA="{\"common_name\": \"${SERVICE}.${DOMAIN}\" }"
     PATHDOMAIN=`echo ${DOMAIN} | sed -e 's/\./-/g'`
 
@@ -13,12 +42,9 @@ if [ "${VAULT_TOKEN}" != "" ]; then
     TRUSTSTORE=/tmp/truststore.p12
     KEYPASS=`openssl rand -base64 18`
 
-    # This file comes from a Volume that we mount in the Pod
-    # /etc/sslca/platform-ca.pem
-
-    curl -L -vvv --cacert /etc/sslca/platform-ca.pem -X PUT  -H 'Content-type: application/json'  -H "X-Vault-Token:${VAULT_TOKEN}" \
+    curl -L -vvv --cacert $CACERT -X PUT  -H 'Content-type: application/json'  -H "X-Vault-Token:${VAULT_TOKEN}" \
        -o ${TEMPFILE} \
-       -d "${DATA}" ${VAULT_HOST}v1/pki/issue/${PATHDOMAIN}
+       -d "${DATA}" ${VAULT_ADDR}v1/pki/issue/${PATHDOMAIN}
 
     # get the data we want from it all
     cat ${TEMPFILE} | jq .data.certificate | sed -e 's/"//g' -e 's/\\n/\x0a/g' > /tmp/crt.pem
@@ -36,6 +62,11 @@ if [ "${VAULT_TOKEN}" != "" ]; then
     #keytool -import -noprompt -trustcacerts -alias ourcert -file /tmp/ca.pem -keystore ${KEYSTORE} -storepass ${KEYPASS}
     echo "adding our ca to the main java truststore"
     keytool -import -noprompt -trustcacerts -file /tmp/ca.pem -alias ourcert -keystore /etc/ssl/certs/java/cacerts -storepass changeit
+
+      getProperties
+      echo "server.ssl.key-store=${KEYSTORE}" >> ${SPRING_CONFIG_OPTIONS_FILE}
+      echo "server.ssl.key-store-password=${KEYPASS}" >> ${SPRING_CONFIG_OPTIONS_FILE}
+
 else
 	echo "Vault token not found"
             exit 1

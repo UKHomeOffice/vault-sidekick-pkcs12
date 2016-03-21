@@ -23,3 +23,11 @@ docker run -it  \
 
 
 Keystore location is located at `/etc/ssl/certs/java/cacerts`
+
+
+
+docker run -it  \
+     -e VAULT_TOKEN=$VAULT_TOKEN \
+     -e VAULT_HOST=$VAULT_HOST \
+     -e SERVICE=www \
+            quay.io/ukhomeofficedigital/vault-sidekick-pkcs
